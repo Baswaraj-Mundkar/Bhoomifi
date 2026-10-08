@@ -1,0 +1,107 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function farmOwner(farmId) {
+      return signedIn()
+        && get(/databases/$(database)/documents/farms/$(farmId)).data.ownerUid == request.auth.uid;
+    }
+
+    function deviceOwner(deviceId) {
+      return signedIn()
+        && farmOwner(get(/databases/$(database)/documents/devices/$(deviceId)).data.farmId);
+    }
+
+    function deviceIdentity(deviceId) {
+      return signedIn()
+        && get(/databases/$(database)/documents/devices/$(deviceId)).data.deviceUid == request.auth.uid;
+    }
+
+    function numericValue(value) {
+      return value is int || value is float;
+    }
+
+    function validCommand(data) {
+      return data.keys().hasOnly([
+          'pumpCommand', 'autoMode', 'minimumMoisture', 'targetMoisture', 'updatedAt'
+        ])
+        && data.updatedAt == request.time
+        && (!('pumpCommand' in data) || data.pumpCommand == null
+          || data.pumpCommand == 'START' || data.pumpCommand == 'STOP')
+        && (!('autoMode' in data) || data.autoMode is bool)
+        && (!('minimumMoisture' in data)
+          || (numericValue(data.minimumMoisture) && data.minimumMoisture >= 0 && data.minimumMoisture < 100))
+        && (!('targetMoisture' in data)
+          || (numericValue(data.targetMoisture) && data.targetMoisture > 0 && data.targetMoisture <= 100))
+        && data.get('minimumMoisture', 35) < data.get('targetMoisture', 45);
+    }
+
+    match /farms/{farmId} {
+      allow read: if farmOwner(farmId);
+      allow write: if false;
+    }
+
+    match /devices/{deviceId} {
+      allow read: if deviceOwner(deviceId) || deviceIdentity(deviceId);
+      allow create, delete: if false;
+      allow update: if deviceIdentity(deviceId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['deviceStatus', 'lastSeen', 'firmwareVersion', 'wifiStatus']);
+
+      match /readings/{readingId} {
+        allow read: if deviceOwner(deviceId);
+        allow create: if deviceIdentity(deviceId)
+          && request.resource.data.keys().hasAll([
+            'soilMoisture', 'soilRawADC', 'temperature', 'humidity', 'light', 'timestamp'
+          ])
+          && request.resource.data.keys().hasOnly([
+            'soilMoisture', 'soilRawADC', 'temperature', 'humidity', 'light', 'pumpStatus', 'timestamp'
+          ]);
+        allow update, delete: if false;
+      }
+
+      match /state/{stateId} {
+        allow read: if deviceOwner(deviceId) || deviceIdentity(deviceId);
+        allow write: if stateId == 'current' && deviceIdentity(deviceId)
+          && request.resource.data.keys().hasAll([
+            'soilMoisture', 'soilRawADC', 'temperature', 'humidity', 'light',
+            'pumpStatus', 'autoMode', 'deviceStatus', 'lastSeen', 'timestamp'
+          ])
+          && request.resource.data.keys().hasOnly([
+            'soilMoisture', 'soilRawADC', 'temperature', 'humidity', 'light',
+            'pumpStatus', 'autoMode', 'deviceStatus', 'lastSeen', 'timestamp'
+          ]);
+      }
+
+      match /commands/{commandId} {
+        allow read: if deviceOwner(deviceId) || deviceIdentity(deviceId);
+        allow create: if commandId == 'current' && deviceOwner(deviceId)
+          && validCommand(request.resource.data);
+        allow update: if commandId == 'current'
+          && (
+            (deviceOwner(deviceId)
+              && validCommand(request.resource.data))
+            || (deviceIdentity(deviceId)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pumpCommand'])
+              && request.resource.data.pumpCommand == null)
+          );
+        allow delete: if false;
+      }
+    }
+
+    match /irrigation_history/{eventId} {
+      allow read: if deviceOwner(resource.data.deviceId);
+      allow create: if deviceIdentity(request.resource.data.deviceId)
+        && request.resource.data.keys().hasAll([
+          'deviceId', 'action', 'reason', 'soilMoisture', 'timestamp', 'source'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'deviceId', 'action', 'reason', 'soilMoisture', 'timestamp', 'source'
+        ]);
+      allow update, delete: if false;
+    }
+  }
+}
