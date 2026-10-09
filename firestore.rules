@@ -1,4 +1,5 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() {
@@ -22,6 +23,48 @@ service cloud.firestore {
 
     function numericValue(value) {
       return value is int || value is float;
+    }
+
+    function validSensorFields(data) {
+      return numericValue(data.soilMoisture)
+        && data.soilMoisture >= 0 && data.soilMoisture <= 100
+        && numericValue(data.soilRawADC)
+        && data.soilRawADC >= 0 && data.soilRawADC <= 4095
+        && numericValue(data.temperature)
+        && data.temperature >= 0 && data.temperature <= 50
+        && numericValue(data.humidity)
+        && data.humidity >= 0 && data.humidity <= 100
+        && numericValue(data.light)
+        && data.light >= 0 && data.light <= 65535;
+    }
+
+    function validReading(data) {
+      return data.keys().hasAll([
+          'soilMoisture', 'soilRawADC', 'temperature', 'humidity', 'light', 'timestamp'
+        ])
+        && data.keys().hasOnly([
+          'soilMoisture', 'soilRawADC', 'temperature', 'humidity', 'light', 'pumpStatus', 'timestamp'
+        ])
+        && validSensorFields(data)
+        && data.timestamp is timestamp
+        && (!('pumpStatus' in data) || data.pumpStatus == 'ON' || data.pumpStatus == 'OFF');
+    }
+
+    function validState(data) {
+      return data.keys().hasAll([
+          'soilMoisture', 'soilRawADC', 'temperature', 'humidity', 'light',
+          'pumpStatus', 'autoMode', 'deviceStatus', 'lastSeen', 'timestamp'
+        ])
+        && data.keys().hasOnly([
+          'soilMoisture', 'soilRawADC', 'temperature', 'humidity', 'light',
+          'pumpStatus', 'autoMode', 'deviceStatus', 'lastSeen', 'timestamp'
+        ])
+        && validSensorFields(data)
+        && (data.pumpStatus == 'ON' || data.pumpStatus == 'OFF')
+        && data.autoMode is bool
+        && data.deviceStatus == 'ONLINE'
+        && data.lastSeen is timestamp
+        && data.timestamp is timestamp;
     }
 
     function validCommand(data) {
@@ -49,31 +92,27 @@ service cloud.firestore {
       allow create, delete: if false;
       allow update: if deviceIdentity(deviceId)
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['deviceStatus', 'lastSeen', 'firmwareVersion', 'wifiStatus']);
+          .hasOnly(['deviceStatus', 'lastSeen', 'firmwareVersion', 'wifiStatus'])
+        && request.resource.data.deviceStatus == 'ONLINE'
+        && request.resource.data.lastSeen is timestamp
+        && request.resource.data.firmwareVersion is string
+        && request.resource.data.firmwareVersion.size() > 0
+        && request.resource.data.firmwareVersion.size() <= 40
+        && request.resource.data.wifiStatus is string
+        && request.resource.data.wifiStatus.size() <= 64;
 
       match /readings/{readingId} {
         allow read: if deviceOwner(deviceId);
-        allow create: if deviceIdentity(deviceId)
-          && request.resource.data.keys().hasAll([
-            'soilMoisture', 'soilRawADC', 'temperature', 'humidity', 'light', 'timestamp'
-          ])
-          && request.resource.data.keys().hasOnly([
-            'soilMoisture', 'soilRawADC', 'temperature', 'humidity', 'light', 'pumpStatus', 'timestamp'
-          ]);
+        allow create: if deviceIdentity(deviceId) && validReading(request.resource.data);
         allow update, delete: if false;
       }
 
       match /state/{stateId} {
         allow read: if deviceOwner(deviceId) || deviceIdentity(deviceId);
-        allow write: if stateId == 'current' && deviceIdentity(deviceId)
-          && request.resource.data.keys().hasAll([
-            'soilMoisture', 'soilRawADC', 'temperature', 'humidity', 'light',
-            'pumpStatus', 'autoMode', 'deviceStatus', 'lastSeen', 'timestamp'
-          ])
-          && request.resource.data.keys().hasOnly([
-            'soilMoisture', 'soilRawADC', 'temperature', 'humidity', 'light',
-            'pumpStatus', 'autoMode', 'deviceStatus', 'lastSeen', 'timestamp'
-          ]);
+        allow create, update: if stateId == 'current'
+          && deviceIdentity(deviceId)
+          && validState(request.resource.data);
+        allow delete: if false;
       }
 
       match /commands/{commandId} {
@@ -82,8 +121,7 @@ service cloud.firestore {
           && validCommand(request.resource.data);
         allow update: if commandId == 'current'
           && (
-            (deviceOwner(deviceId)
-              && validCommand(request.resource.data))
+            (deviceOwner(deviceId) && validCommand(request.resource.data))
             || (deviceIdentity(deviceId)
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pumpCommand'])
               && request.resource.data.pumpCommand == null)
@@ -94,13 +132,23 @@ service cloud.firestore {
 
     match /irrigation_history/{eventId} {
       allow read: if deviceOwner(resource.data.deviceId);
-      allow create: if deviceIdentity(request.resource.data.deviceId)
-        && request.resource.data.keys().hasAll([
+      allow create: if request.resource.data.keys().hasAll([
           'deviceId', 'action', 'reason', 'soilMoisture', 'timestamp', 'source'
         ])
         && request.resource.data.keys().hasOnly([
           'deviceId', 'action', 'reason', 'soilMoisture', 'timestamp', 'source'
-        ]);
+        ])
+        && request.resource.data.deviceId is string
+        && deviceIdentity(request.resource.data.deviceId)
+        && (request.resource.data.action == 'START' || request.resource.data.action == 'STOP')
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() > 0
+        && request.resource.data.reason.size() <= 120
+        && numericValue(request.resource.data.soilMoisture)
+        && request.resource.data.soilMoisture >= 0
+        && request.resource.data.soilMoisture <= 100
+        && request.resource.data.timestamp is timestamp
+        && (request.resource.data.source == 'AUTO' || request.resource.data.source == 'MANUAL');
       allow update, delete: if false;
     }
   }
