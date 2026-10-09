@@ -36,15 +36,13 @@ export const IrrigationScreen: React.FC<IrrigationScreenProps> = ({
   };
 
   const isPumpOn = telemetry.pumpStatus === 'ON';
-  const isAuto = telemetry.autoMode;
+  const isAuto = telemetry.autoMode !== false;
   const isMoistureLow = telemetry.soilMoisture !== null && telemetry.soilMoisture < telemetry.minMoistureThreshold;
 
   const handlePumpClick = async () => {
     if (isAuto || !canControl || telemetry.pumpStatus === null) return;
     await onTogglePump();
-    showToast(isDemoMode
-      ? `Water pump turned ${isPumpOn ? 'OFF' : 'ON'}`
-      : `Pump command sent to Firebase; awaiting ESP32 ${isPumpOn ? 'OFF' : 'ON'} state`);
+    if (isDemoMode) showToast(`Demo pump state changed to ${isPumpOn ? 'OFF' : 'ON'}`);
   };
 
   const updateMinimum = (value: string) => {
@@ -62,23 +60,24 @@ export const IrrigationScreen: React.FC<IrrigationScreenProps> = ({
   };
 
   const handleModeClick = async () => {
-    if (!canControl) return;
+    if (!canControl || telemetry.autoMode === null) return;
     await onToggleMode();
-    showToast(isDemoMode
-      ? `Switched to ${isAuto ? 'MANUAL' : 'AUTO'} Mode`
-      : `${isAuto ? 'MANUAL' : 'AUTO'} command sent to Firebase; awaiting ESP32 state`);
+    if (isDemoMode) showToast(`Switched to ${isAuto ? 'MANUAL' : 'AUTO'} Mode`);
   };
 
   /** Returns a human-readable reason for the current pump state */
   const getPumpStateReason = (): string => {
-    if (!isDemoMode && telemetry.deviceStatus === 'OFFLINE') {
+    if (!isDemoMode && telemetry.deviceStatus !== 'ONLINE') {
       const lastSeen = telemetry.lastSeen
         ? ` Last seen ${new Date(telemetry.lastSeen).toLocaleString()}.`
         : ' No heartbeat has been received yet.';
-      return `ESP32 is OFFLINE; the last confirmed sensor and pump readings are retained.${lastSeen}`;
+      return `ESP32 is ${telemetry.deviceStatus}; the last confirmed sensor and pump readings are retained.${lastSeen}`;
     }
     if (telemetry.soilMoisture === null || telemetry.pumpStatus === null) {
       return 'Waiting for a soil reading before applying irrigation rules.';
+    }
+    if (telemetry.autoMode === null) {
+      return 'Waiting for the device to report its irrigation mode.';
     }
     if (isAuto) {
       if (isPumpOn) {
@@ -98,7 +97,9 @@ export const IrrigationScreen: React.FC<IrrigationScreenProps> = ({
     }
     return `MANUAL: Pump stopped. Tap Start Pump to irrigate manually.`;
   };
-  const operationMode = isAuto ? 'AUTO' : 'MANUAL';
+  const operationModeLabel = telemetry.autoMode === null
+    ? 'Unavailable'
+    : telemetry.autoMode ? 'AUTO' : 'MANUAL';
 
   return (
     <div className="space-y-4 px-5 pb-8">
@@ -122,12 +123,12 @@ export const IrrigationScreen: React.FC<IrrigationScreenProps> = ({
         {/* Mode badge / toggle */}
         <button
           onClick={handleModeClick}
-          disabled={!canControl}
+          disabled={!canControl || telemetry.autoMode === null}
           className="bg-[#E7F3EC] hover:bg-[#D7EFE2] text-[#227C4F] px-3.5 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs"
           title="Click to toggle AUTO / MANUAL"
         >
           <span className="w-2 h-2 rounded-full bg-[#227C4F] animate-pulse"></span>
-          <span>{operationMode} Mode</span>
+          <span>{operationModeLabel}{telemetry.autoMode === null ? '' : ' Mode'}</span>
         </button>
       </div>
 
@@ -226,10 +227,14 @@ export const IrrigationScreen: React.FC<IrrigationScreenProps> = ({
         <div className="p-4 rounded-2xl bg-[#F6F8F7] border border-neutral-200/60 flex items-center justify-between gap-4">
           <div className="space-y-1 flex-1 min-w-0">
             <h4 className="text-xs font-bold text-neutral-900">
-              {isAuto ? 'Automatic Irrigation Rule' : 'Manual Relay Override'}
+              {telemetry.autoMode === null
+                ? 'Irrigation mode unavailable'
+                : isAuto ? 'Automatic Irrigation Rule' : 'Manual Relay Override'}
             </h4>
             <p className="text-[11px] text-neutral-500 leading-snug">
-              {isAuto
+              {telemetry.autoMode === null
+                ? 'Waiting for the device to report its irrigation mode.'
+                : isAuto
                 ? `Pump triggers automatically if soil moisture drops below ${telemetry.minMoistureThreshold}% until ${telemetry.targetMoistureThreshold}% is reached.`
                 : 'Direct manual control enabled. Use Start Pump or Stop Pump.'}
             </p>
@@ -267,10 +272,10 @@ export const IrrigationScreen: React.FC<IrrigationScreenProps> = ({
           </div>
           <button
             onClick={handleModeClick}
-            disabled={!canControl}
+            disabled={!canControl || telemetry.autoMode === null}
             className="text-[11px] text-[#227C4F] font-bold hover:underline shrink-0 disabled:opacity-40"
           >
-            → {isAuto ? 'MANUAL' : 'AUTO'}
+            → {telemetry.autoMode === null ? 'Mode unavailable' : isAuto ? 'MANUAL' : 'AUTO'}
           </button>
         </div>
       </div>

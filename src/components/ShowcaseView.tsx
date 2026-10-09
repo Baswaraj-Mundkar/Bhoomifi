@@ -29,6 +29,7 @@ interface ShowcaseViewProps {
   onRefreshMetrics: () => void;
   onNavigateToTab: (tab: NavigationTab) => void;
   canControl: boolean;
+  pendingCommand: string | null;
 }
 
 export const ShowcaseView: React.FC<ShowcaseViewProps> = ({
@@ -42,7 +43,8 @@ export const ShowcaseView: React.FC<ShowcaseViewProps> = ({
   onRefreshMetrics,
   onNavigateToTab,
   settings,
-  canControl
+  canControl,
+  pendingCommand
 }) => {
   return (
     <div className="w-full min-h-screen bg-[#DCDEDD] py-12 px-4 flex flex-col items-center justify-center">
@@ -58,8 +60,13 @@ export const ShowcaseView: React.FC<ShowcaseViewProps> = ({
           {settings.demoMode ? 'DEMO MODE • ' : `${telemetry.deviceStatus} • `}
           Soil Moisture ({telemetry.soilMoisture === null ? '—' : `${telemetry.soilMoisture}%`}) •
           DHT11 ({telemetry.temperature === null ? '—' : `${telemetry.temperature}°C`}, {telemetry.humidity ?? '—'}% RH) •
-          BH1750 ({telemetry.light ?? '—'} lux) • Relay &amp; Water Pump • {telemetry.autoMode ? 'AUTO' : 'MANUAL'} Mode
+          BH1750 ({telemetry.light ?? '—'} lux) • Relay &amp; Water Pump • {telemetry.autoMode === null ? 'Unavailable' : telemetry.autoMode ? 'AUTO' : 'MANUAL'} Mode
         </p>
+        {pendingCommand && (
+          <p role="status" className="mx-auto mt-3 max-w-2xl rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+            {pendingCommand}
+          </p>
+        )}
       </div>
 
       {/* 3 Devices Side-by-Side matching reference photo */}
@@ -150,13 +157,13 @@ export const ShowcaseView: React.FC<ShowcaseViewProps> = ({
                       {settings.deviceId} ⌵
                     </span>
                     <span className="px-3.5 py-2 rounded-2xl bg-white border border-neutral-200/80 text-xs font-semibold text-neutral-800 shadow-2xs">
-                      Mode: {telemetry.autoMode ? 'AUTO' : 'MANUAL'} ⌵
+                      Mode: {telemetry.autoMode === null ? 'Unavailable' : telemetry.autoMode ? 'AUTO' : 'MANUAL'} ⌵
                     </span>
                   </div>
 
                   <button
                     onClick={onTogglePump}
-                    disabled={!canControl || telemetry.autoMode || telemetry.pumpStatus === null}
+                    disabled={!canControl || telemetry.autoMode !== false || telemetry.pumpStatus === null}
                     className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-[#227C4F] text-white text-xs font-bold shadow-sm"
                   >
                     <span>{telemetry.pumpStatus === 'ON' ? 'Stop Pump' : 'Start Pump'}</span>
@@ -265,7 +272,7 @@ export const ShowcaseView: React.FC<ShowcaseViewProps> = ({
                         </span>
                       </div>
                       <p className="text-[11px] text-neutral-400">
-                        HW-080 GPIO32 • ADC {telemetry.soilRawADC ?? '—'}
+                        Capacitive v2.0 GPIO32 • ADC {telemetry.soilRawADC ?? '—'}
                       </p>
                     </div>
                     <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#E7F3EC] text-[#227C4F]">

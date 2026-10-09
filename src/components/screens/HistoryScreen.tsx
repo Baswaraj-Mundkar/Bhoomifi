@@ -42,7 +42,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
   const [activeMetric, setActiveMetric] = useState<'moisture' | 'climate' | 'light' | 'pump'>('moisture');
   const [filterType, setFilterType] = useState<FilterCategory>('all');
   const [downloadToast, setDownloadToast] = useState(false);
-  const sourceLabel = isDemoMode ? 'Demo' : deviceStatus === 'ONLINE' ? 'LIVE' : 'OFFLINE';
+  const sourceLabel = isDemoMode ? 'Demo' : deviceStatus === 'ONLINE' ? 'LIVE' : deviceStatus;
 
   const handleExport = () => {
     const rows = [

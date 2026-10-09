@@ -122,7 +122,7 @@ export const FieldScreen: React.FC<FieldScreenProps> = ({
               <span>{telemetry.soilMoisture === null ? 'No live soil reading' : telemetry.soilMoisture < 35 ? 'Dry' : telemetry.soilMoisture < 45 ? 'Needs Water' : 'Adequate'}</span>
             </div>
             <p className="text-[11px] text-neutral-400 max-w-[170px] leading-snug">
-              HW-080 ADC GPIO32 • Raw ADC {telemetry.soilRawADC ?? '—'} • AUTO: pump ON below 35%, OFF at 45%.
+              Capacitive v2.0 ADC GPIO32 • Raw ADC {telemetry.soilRawADC ?? '—'} • AUTO: pump ON below 35%, OFF at 45%.
             </p>
           </div>
 
@@ -182,7 +182,7 @@ export const FieldScreen: React.FC<FieldScreenProps> = ({
         </p>
 
         <div className="mt-3 flex items-center justify-between pt-2 border-t border-neutral-100/80 text-[11px]">
-          <span className="text-[#227C4F] font-semibold">Pump: {telemetry.pumpStatus ?? '—'} • Mode: {telemetry.autoMode ? 'AUTO' : 'MANUAL'}</span>
+          <span className="text-[#227C4F] font-semibold">Pump: {telemetry.pumpStatus ?? '—'} • Mode: {telemetry.autoMode === null ? 'Unavailable' : telemetry.autoMode ? 'AUTO' : 'MANUAL'}</span>
           <button
             onClick={onNavigateToIrrigation}
             className="text-xs font-bold text-[#227C4F] hover:underline"

@@ -40,7 +40,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               Bhoomi<span className="text-[#227C4F]">Fi</span>
             </span>
             <span className="text-xs bg-[#E7F3EC] text-[#227C4F] px-2.5 py-0.5 rounded-full font-medium ml-2">
-              {isDemoMode ? 'Demo Mode' : deviceStatus === 'ONLINE' ? 'LIVE' : 'OFFLINE'}
+              {isDemoMode ? 'Demo Mode' : deviceStatus === 'ONLINE' ? 'LIVE' : deviceStatus}
             </span>
           </div>
 

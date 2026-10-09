@@ -16,7 +16,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose, onNav
   if (!isOpen) return null;
 
   const quickLinks = [
-    { label: 'HW-080 Soil Moisture Hygrometer', tab: 'field' as NavigationTab, type: 'Sensor Channel', icon: Droplets },
+    { label: 'Capacitive Soil Moisture Sensor v2.0', tab: 'field' as NavigationTab, type: 'Sensor Channel', icon: Droplets },
     { label: '1-Channel Relay & Water Pump Control', tab: 'irrigation' as NavigationTab, type: 'Actuator', icon: Cpu },
     { label: 'DHT11 Temperature & Humidity', tab: 'home' as NavigationTab, type: 'Microclimate', icon: Thermometer },
     { label: 'BH1750 Ambient Light', tab: 'history' as NavigationTab, type: 'Photometric', icon: Sun },

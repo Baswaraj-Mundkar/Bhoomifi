@@ -32,17 +32,21 @@ import {
 } from '@/data/mockData';
 import { rawAdcFromMoisturePercent } from '@/data/sensorModel';
 import { firebaseConfigured, getFirebaseServices } from '@/data/firebaseClient';
-import { sendFirebaseCommand, subscribeToFirebaseDevice } from '@/data/firebaseService';
+import {
+  sendFirebaseCommand,
+  subscribeToFirebaseDevice
+} from '@/data/firebaseService';
+import type { FirebaseConnectionStatus, FirebaseSetupStatus } from '@/data/firebaseService';
 import { Smartphone, Monitor, LayoutGrid } from 'lucide-react';
 
 function resolvePumpStatus(
   moisture: number | null,
-  autoMode: boolean,
+  autoMode: boolean | null,
   currentStatus: BhoomiFiTelemetry['pumpStatus'],
   minimum: number,
   target: number
 ): BhoomiFiTelemetry['pumpStatus'] {
-  if (!autoMode || moisture === null) return currentStatus;
+  if (autoMode !== true || moisture === null) return currentStatus;
   if (moisture < minimum) return 'ON';
   if (moisture >= target) return 'OFF';
   return currentStatus;
@@ -102,6 +106,13 @@ function toSensorHistoryPoint(telemetry: BhoomiFiTelemetry): SensorHistoryPoint 
   };
 }
 
+interface PendingDeviceCommand {
+  message: string;
+  expectedPumpStatus?: BhoomiFiTelemetry['pumpStatus'];
+  expectedAutoMode?: boolean;
+  baselineTimestamp: string | null;
+}
+
 export default function BhoomiFiApp() {
   // Navigation & View Mode
   const [currentTab, setCurrentTab] = useState<NavigationTab>('home');
@@ -123,6 +134,12 @@ export default function BhoomiFiApp() {
   const [settings, setSettings] = useState<DeviceSettings>(initialDeviceSettings);
   const [firebaseUid, setFirebaseUid] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(firebaseConfigured);
+  const [firebaseConnectionStatus, setFirebaseConnectionStatus] = useState<FirebaseConnectionStatus>(
+    firebaseConfigured ? 'connecting' : 'error'
+  );
+  const [firebaseSetupStatus, setFirebaseSetupStatus] = useState<FirebaseSetupStatus>(
+    firebaseConfigured ? 'checking' : 'not-configured'
+  );
   const [authActionLoading, setAuthActionLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [firebaseMessage, setFirebaseMessage] = useState(
@@ -131,7 +148,12 @@ export default function BhoomiFiApp() {
       : 'Firebase is not configured. Add the public Firebase settings from .env.example to .env.local.'
   );
   const [commandError, setCommandError] = useState<string | null>(null);
-  const canControl = settings.demoMode || (!authLoading && firebaseUid !== null);
+  const [pendingCommand, setPendingCommand] = useState<PendingDeviceCommand | null>(null);
+  const canControl = settings.demoMode || (
+    !authLoading
+    && firebaseUid !== null
+    && firebaseSetupStatus === 'ready'
+  );
 
   useEffect(() => {
     if (settings.demoMode) return;
@@ -146,7 +168,9 @@ export default function BhoomiFiApp() {
       })));
     };
 
-    if (!firebaseConfigured) return;
+    if (!firebaseConfigured) {
+      return;
+    }
 
     let disposed = false;
     let unsubscribeDevice: (() => void) | undefined;
@@ -154,6 +178,7 @@ export default function BhoomiFiApp() {
     void getFirebaseServices().then(async (services) => {
       if (disposed) return;
       if (!services) {
+        setFirebaseConnectionStatus('error');
         markUnavailable('Firebase could not be initialized. Check the Firebase environment settings.');
         setAuthLoading(false);
         return;
@@ -168,6 +193,9 @@ export default function BhoomiFiApp() {
           setFirebaseUid(user?.uid ?? null);
           setAuthLoading(false);
           if (!user) {
+            setFirebaseConnectionStatus('disconnected');
+            setFirebaseSetupStatus('checking');
+            setPendingCommand(null);
             markUnavailable('Sign in with Firebase Authentication to access this farm. Demo Mode remains available.');
             setTelemetry(unavailableLiveTelemetry);
             setSensorHistory([]);
@@ -175,31 +203,54 @@ export default function BhoomiFiApp() {
             return;
           }
 
-          setFirebaseMessage(`Authenticated. Listening for ${settings.deviceId}…`);
-          unsubscribeDevice = subscribeToFirebaseDevice(services.db, settings.deviceId, {
+          setFirebaseConnectionStatus('connecting');
+          setFirebaseSetupStatus('checking');
+          setFirebaseMessage(`Authenticated. Checking farm ${settings.farmId}…`);
+          unsubscribeDevice = subscribeToFirebaseDevice(services.db, settings.farmId, settings.deviceId, user.uid, {
             onTelemetry: (nextTelemetry) => {
               setTelemetry(nextTelemetry);
+              setPendingCommand((pending) => {
+                const reportedAt = nextTelemetry.lastSeen ?? nextTelemetry.timestamp;
+                if (!pending || !reportedAt || reportedAt === pending.baselineTimestamp) {
+                  return pending;
+                }
+                const pumpConfirmed = pending.expectedPumpStatus !== undefined
+                  && nextTelemetry.pumpStatus === pending.expectedPumpStatus;
+                const modeConfirmed = pending.expectedAutoMode !== undefined
+                  && nextTelemetry.autoMode === pending.expectedAutoMode;
+                return pumpConfirmed || modeConfirmed ? null : pending;
+              });
               setHardware((modules) => modules.map((module) => {
                 if (module.id === 'esp32') {
                   return {
                     ...module,
                     status: nextTelemetry.deviceStatus === 'ONLINE' ? 'Operational' : 'Offline',
-                    reading: nextTelemetry.lastSeen
-                      ? `Last seen ${new Date(nextTelemetry.lastSeen).toLocaleString()}`
-                      : 'No device heartbeat received'
+                    reading: nextTelemetry.deviceStatus === 'ONLINE'
+                      ? `Heartbeat ${nextTelemetry.lastSeen ?? 'received'}`
+                      : nextTelemetry.deviceStatus === 'STALE'
+                        ? `Stale heartbeat ${nextTelemetry.lastSeen ?? 'not available'}`
+                        : 'No recent device heartbeat'
                   };
                 }
                 if (module.id === 'relay' || module.id === 'led' || module.id === 'pump') {
                   return {
                     ...module,
-                    status: nextTelemetry.pumpStatus === null ? 'Offline' : nextTelemetry.pumpStatus === 'ON' ? 'Operational' : 'Standby',
-                    reading: nextTelemetry.pumpStatus ?? 'No live pump state'
+                    status: nextTelemetry.deviceStatus !== 'ONLINE' || nextTelemetry.pumpStatus === null
+                      ? 'Offline'
+                      : nextTelemetry.pumpStatus === 'ON' ? 'Operational' : 'Standby',
+                    reading: nextTelemetry.pumpStatus === null
+                      ? 'No valid pump state'
+                      : `${nextTelemetry.deviceStatus === 'ONLINE' ? 'Reported' : 'Last reported'} ${nextTelemetry.pumpStatus}`
                   };
                 }
                 return {
                   ...module,
                   status: nextTelemetry.deviceStatus === 'ONLINE' ? 'Operational' : 'Offline',
-                  reading: nextTelemetry.deviceStatus === 'ONLINE' ? 'Live sensor stream' : 'Last value retained; device offline'
+                  reading: nextTelemetry.deviceStatus === 'ONLINE'
+                    ? 'Fresh sensor telemetry'
+                    : nextTelemetry.deviceStatus === 'STALE'
+                      ? 'Last values retained; telemetry stale'
+                      : 'Waiting for valid sensor telemetry'
                 };
               }));
               setSettings((previous) => ({
@@ -218,9 +269,32 @@ export default function BhoomiFiApp() {
                 wifiSSID: info.wifiSSID
               }));
             },
+            onSetupStatus: (status) => {
+              setFirebaseSetupStatus(status);
+              if (status === 'missing-farm') {
+                setFirebaseMessage(`Farm ${settings.farmId} is missing or unavailable to this account.`);
+              } else if (status === 'missing-device') {
+                setFirebaseMessage(`Device ${settings.deviceId} is not provisioned under farm ${settings.farmId}.`);
+              } else if (status === 'incomplete-record') {
+                setFirebaseMessage('The farm or device record is missing required fields or contains invalid values.');
+              } else if (status === 'ownership-mismatch') {
+                setFirebaseMessage('Farm/device ownership links do not match this signed-in account. Verify ownerUid, farmId, and deviceIds.');
+              } else if (status === 'ready') {
+                setFirebaseMessage(`Farm and device access verified. Listening to ${settings.deviceId}.`);
+              }
+            },
+            onConnection: (status, message) => {
+              setFirebaseConnectionStatus(status);
+              if (status !== 'connected') setFirebaseMessage(message);
+            },
             onError: (error) => {
-              setFirebaseMessage(`Firestore listener error: ${error.message}`);
-              setTelemetry((previous) => ({ ...previous, deviceStatus: 'OFFLINE' }));
+              const errorCode = 'code' in error && typeof error.code === 'string' ? error.code : '';
+              if (errorCode === 'permission-denied') {
+                setFirebaseSetupStatus('ownership-mismatch');
+                setFirebaseMessage('Firestore permission denied. Check that the farm and device records exist and their ownerUid/deviceUid links are correct.');
+              } else {
+                setFirebaseMessage(`Firestore listener error: ${error.message}`);
+              }
             }
           });
         },
@@ -229,11 +303,13 @@ export default function BhoomiFiApp() {
           unsubscribeDevice = undefined;
           setFirebaseUid(null);
           setAuthLoading(false);
+          setFirebaseConnectionStatus('error');
           markUnavailable(`Firebase Authentication error: ${error.message}`);
         }
       );
     }).catch((error: unknown) => {
       if (disposed) return;
+      setFirebaseConnectionStatus('error');
       markUnavailable(`Firebase could not initialize: ${error instanceof Error ? error.message : String(error)}`);
       setAuthLoading(false);
     });
@@ -243,18 +319,32 @@ export default function BhoomiFiApp() {
       unsubscribeDevice?.();
       unsubscribeAuth?.();
     };
-  }, [settings.demoMode, settings.deviceId]);
+  }, [settings.demoMode, settings.farmId, settings.deviceId]);
   const recordSensorHistory = (reading: BhoomiFiTelemetry) => {
     const point = toSensorHistoryPoint(reading);
     if (point) setSensorHistory((history) => [...history, point].slice(-100));
   };
 
-  const writeCommand = async (command: FirebaseDeviceCommand) => {
-    const services = await getFirebaseServices();
-    if (!services || !firebaseUid) {
-      throw new Error('Firebase Authentication is required before sending device commands.');
+  const writeCommand = async (
+    command: FirebaseDeviceCommand,
+    pendingMessage: string,
+    expected: Pick<PendingDeviceCommand, 'expectedPumpStatus' | 'expectedAutoMode'> = {}
+  ) => {
+    setPendingCommand({
+      message: pendingMessage,
+      ...expected,
+      baselineTimestamp: telemetry.lastSeen ?? telemetry.timestamp
+    });
+    try {
+      const services = await getFirebaseServices();
+      if (!services || !firebaseUid) {
+        throw new Error('Firebase Authentication is required before sending device commands.');
+      }
+      await sendFirebaseCommand(services.db, settings.deviceId, command);
+    } catch (error) {
+      setPendingCommand(null);
+      throw error;
     }
-    await sendFirebaseCommand(services.db, settings.deviceId, command);
   };
 
   const handleSignIn = async (email: string, password: string) => {
@@ -280,6 +370,7 @@ export default function BhoomiFiApp() {
       if (!services) throw new Error('Firebase is not configured. Check the local Firebase environment settings.');
       const { signOut } = await import('firebase/auth');
       await signOut(services.auth);
+      setPendingCommand(null);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -289,14 +380,18 @@ export default function BhoomiFiApp() {
 
   // Pump Toggle Handler (Supports Manual override and logs)
   const handleTogglePump = async () => {
-    if (telemetry.autoMode || telemetry.pumpStatus === null || telemetry.soilMoisture === null) return;
+    if (telemetry.autoMode !== false || telemetry.pumpStatus === null || telemetry.soilMoisture === null) return;
 
     const soilMoisture = telemetry.soilMoisture;
     const nextStatus = telemetry.pumpStatus === 'ON' ? 'OFF' : 'ON';
     if (!settings.demoMode) {
       try {
         setCommandError(null);
-        await writeCommand({ pumpCommand: nextStatus === 'ON' ? 'START' : 'STOP' });
+        await writeCommand(
+          { pumpCommand: nextStatus === 'ON' ? 'START' : 'STOP' },
+          `Pump ${nextStatus === 'ON' ? 'START' : 'STOP'} command is pending; relay and pump state remain unconfirmed until a later ESP32 update.`,
+          { expectedPumpStatus: nextStatus }
+        );
       } catch (error) {
         setCommandError(`Could not send pump command: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -319,7 +414,7 @@ export default function BhoomiFiApp() {
       const newLog: IrrigationLog = {
         id: `irr-${Date.now()}`,
         timestamp: 'Just now',
-        mode: telemetry.autoMode ? 'AUTO' : 'MANUAL',
+        mode: 'MANUAL',
         durationSeconds: 0,
         startedAt: Date.now(),
         triggerReason: 'Pump started manually',
@@ -344,6 +439,7 @@ export default function BhoomiFiApp() {
 
   // Mode Toggle Handler (AUTO <-> MANUAL)
   const handleToggleMode = async () => {
+    if (telemetry.autoMode === null) return;
     if (!settings.demoMode) {
       const autoMode = !telemetry.autoMode;
       try {
@@ -352,6 +448,8 @@ export default function BhoomiFiApp() {
           autoMode,
           minimumMoisture: telemetry.minMoistureThreshold,
           targetMoisture: telemetry.targetMoistureThreshold
+        }, `${autoMode ? 'AUTO' : 'MANUAL'} command is pending; awaiting a later ESP32 state update.`, {
+          expectedAutoMode: autoMode
         });
       } catch (error) {
         setCommandError(`Could not update device mode: ${error instanceof Error ? error.message : String(error)}`);
@@ -403,7 +501,13 @@ export default function BhoomiFiApp() {
       if (typeof updates.autoMode === 'boolean') command.autoMode = updates.autoMode;
       try {
         setCommandError(null);
-        await writeCommand(command);
+        await writeCommand(
+          command,
+          typeof updates.autoMode === 'boolean'
+            ? `${updates.autoMode ? 'AUTO' : 'MANUAL'} command is pending; awaiting a later ESP32 state update.`
+            : 'Threshold command was saved to Firestore; the current state schema has no threshold acknowledgment, so device application is unconfirmed.',
+          typeof updates.autoMode === 'boolean' ? { expectedAutoMode: updates.autoMode } : {}
+        );
         setTelemetry((previous) => ({
           ...previous,
           minMoistureThreshold: minimumMoisture,
@@ -543,6 +647,7 @@ export default function BhoomiFiApp() {
 
   const handleSetDemoMode = (demoMode: boolean) => {
     setCommandError(null);
+    setPendingCommand(null);
     setSettings((prev) => ({ ...prev, demoMode }));
     if (demoMode) {
       setTelemetry({
@@ -636,6 +741,11 @@ export default function BhoomiFiApp() {
                   {commandError}
                 </p>
               )}
+              {pendingCommand && (
+                <p role="status" className="mx-5 mt-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+                  {pendingCommand.message}
+                </p>
+              )}
               {currentTab === 'home' && (
                 <HomeScreen
                   telemetry={telemetry}
@@ -694,6 +804,8 @@ export default function BhoomiFiApp() {
                   firebaseUid={firebaseUid}
                   canControl={canControl}
                   firebaseConfigured={firebaseConfigured}
+                  firebaseConnectionStatus={firebaseConnectionStatus}
+                  firebaseSetupStatus={firebaseSetupStatus}
                   authLoading={authLoading}
                   authActionLoading={authActionLoading}
                   authError={authError}
@@ -743,6 +855,9 @@ export default function BhoomiFiApp() {
             authLoading={authLoading}
             authActionLoading={authActionLoading}
             authError={authError}
+            firebaseConnectionStatus={firebaseConnectionStatus}
+            firebaseSetupStatus={firebaseSetupStatus}
+            pendingCommand={pendingCommand?.message ?? null}
             onSignIn={handleSignIn}
             onSignOut={handleSignOut}
           />
@@ -769,6 +884,7 @@ export default function BhoomiFiApp() {
               setViewMode('mobile');
             }}
             canControl={canControl}
+            pendingCommand={pendingCommand?.message ?? null}
           />
         </div>
       )}

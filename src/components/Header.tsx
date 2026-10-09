@@ -36,7 +36,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
           <span className={`inline-flex items-center gap-1 text-[10px] font-semibold tracking-wider uppercase ${isDemoMode || deviceStatus === 'ONLINE' ? 'text-[#227C4F]' : 'text-amber-700'}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${isDemoMode || deviceStatus === 'ONLINE' ? 'bg-[#227C4F]' : 'bg-amber-600'}`}></span>
-            {isDemoMode ? 'Demo Mode' : deviceStatus === 'ONLINE' ? 'LIVE' : 'OFFLINE'}
+            {isDemoMode ? 'Demo Mode' : deviceStatus === 'ONLINE' ? 'LIVE' : deviceStatus}
           </span>
         </div>
       </div>

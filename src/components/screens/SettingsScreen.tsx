@@ -10,6 +10,7 @@ import {
   LogOut
 } from 'lucide-react';
 import { BhoomiFiTelemetry, DeviceSettings, OperationMode } from '@/types';
+import type { FirebaseConnectionStatus, FirebaseSetupStatus } from '@/data/firebaseService';
 
 interface SettingsScreenProps {
   telemetry: BhoomiFiTelemetry;
@@ -23,6 +24,8 @@ interface SettingsScreenProps {
   firebaseUid: string | null;
   canControl: boolean;
   firebaseConfigured: boolean;
+  firebaseConnectionStatus: FirebaseConnectionStatus;
+  firebaseSetupStatus: FirebaseSetupStatus;
   authLoading: boolean;
   authActionLoading: boolean;
   authError: string | null;
@@ -42,6 +45,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   firebaseUid,
   canControl,
   firebaseConfigured,
+  firebaseConnectionStatus,
+  firebaseSetupStatus,
   authLoading,
   authActionLoading,
   authError,
@@ -59,8 +64,26 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   const handleModeChange = async (mode: OperationMode) => {
     await onUpdateTelemetry({ autoMode: mode === 'AUTO' });
-    showToast(`Switched mode to ${mode}`);
+    if (settings.demoMode) showToast(`Switched mode to ${mode}`);
   };
+  const connectionLabel = !firebaseConfigured
+    ? 'Not configured'
+    : firebaseConnectionStatus === 'connected'
+      ? 'Connected'
+      : firebaseConnectionStatus === 'connecting'
+        ? 'Connecting'
+        : firebaseConnectionStatus === 'error'
+          ? 'Error'
+          : 'Disconnected';
+  const setupLabel = {
+    'not-configured': 'Firebase is not configured',
+    checking: 'Checking farm/device records',
+    ready: 'Farm and device access verified',
+    'missing-farm': 'Farm missing or inaccessible',
+    'missing-device': 'Device not provisioned',
+    'incomplete-record': 'Farm/device fields are incomplete or invalid',
+    'ownership-mismatch': 'Ownership or access mismatch'
+  }[firebaseSetupStatus];
 
   return (
     <div className="space-y-4 px-5 pb-8">
@@ -94,7 +117,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
             settings.demoMode || telemetry.deviceStatus === 'ONLINE' ? 'bg-[#E7F3EC] text-[#227C4F]' : 'bg-amber-50 text-amber-700'
           }`}>
-            {settings.demoMode ? 'DEMO MODE' : telemetry.deviceStatus === 'ONLINE' ? 'LIVE' : 'OFFLINE'}
+            {settings.demoMode ? 'DEMO MODE' : telemetry.deviceStatus === 'ONLINE' ? 'LIVE' : telemetry.deviceStatus}
           </span>
         </div>
 
@@ -102,9 +125,56 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           {settings.demoMode
             ? 'Demo readings are simulated and are not real sensor data.'
             : telemetry.deviceStatus === 'ONLINE'
-              ? `LIVE • Connected to Firebase. Last sensor update: ${telemetry.timestamp ? new Date(telemetry.timestamp).toLocaleString() : 'not reported'}.`
-              : `OFFLINE • ${telemetry.lastSeen ? `Last seen ${new Date(telemetry.lastSeen).toLocaleString()}. ` : ''}${connectionMessage || 'Last known readings are retained; no simulated values are shown.'}`}
+              ? `LIVE • ${connectionLabel === 'Connected' ? 'Connected to Firebase.' : `Firebase is ${connectionLabel.toLowerCase()}; showing the latest device heartbeat.`} Last sensor update: ${telemetry.timestamp ? new Date(telemetry.timestamp).toLocaleString() : 'not reported'}.`
+              : `${telemetry.deviceStatus} • ${telemetry.lastSeen ? `Last seen ${new Date(telemetry.lastSeen).toLocaleString()}. ` : ''}${connectionMessage || 'Last known readings are retained; no simulated values are shown.'}`}
         </p>
+
+        <div className="grid grid-cols-2 gap-x-3 gap-y-2 rounded-2xl border border-neutral-100 bg-neutral-50 p-3 text-[10px]">
+          <div>
+            <span className="block font-semibold text-neutral-400">Firebase connection</span>
+            <span className="font-bold text-neutral-800">{settings.demoMode ? 'Demo mode (not connected)' : connectionLabel}</span>
+          </div>
+          <div>
+            <span className="block font-semibold text-neutral-400">Authentication</span>
+            <span className="font-bold text-neutral-800">
+              {settings.demoMode ? 'Not required for Demo' : authLoading ? 'Checking…' : firebaseUid ? 'Signed in' : 'Sign-in required'}
+            </span>
+          </div>
+          <div>
+            <span className="block font-semibold text-neutral-400">Current farm</span>
+            <span className="font-bold text-neutral-800">{settings.farmId}</span>
+          </div>
+          <div>
+            <span className="block font-semibold text-neutral-400">Current device</span>
+            <span className="font-bold text-neutral-800">{settings.deviceName}</span>
+          </div>
+          <div>
+            <span className="block font-semibold text-neutral-400">Device ID</span>
+            <span className="break-all font-bold text-neutral-800">{settings.deviceId}</span>
+          </div>
+          <div>
+            <span className="block font-semibold text-neutral-400">Telemetry</span>
+            <span className="font-bold text-neutral-800">
+              {settings.demoMode ? 'DEMO' : telemetry.deviceStatus === 'ONLINE' ? 'LIVE / ONLINE' : telemetry.deviceStatus}
+            </span>
+          </div>
+          <div className="col-span-2">
+            <span className="block font-semibold text-neutral-400">Provisioning status</span>
+            <span className="font-bold text-neutral-800">{settings.demoMode ? 'Demo data only' : setupLabel}</span>
+          </div>
+          {!settings.demoMode && (
+            <>
+              <div>
+                <span className="block font-semibold text-neutral-400">Wi-Fi</span>
+                <span className="font-bold text-neutral-800">{settings.wifiSSID}</span>
+              </div>
+              <div>
+                <span className="block font-semibold text-neutral-400">Firmware</span>
+                <span className="font-bold text-neutral-800">{settings.firmwareVersion}</span>
+              </div>
+            </>
+          )}
+        </div>
 
         <div className="flex gap-2">
           <button
@@ -289,7 +359,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 onClick={() => handleModeChange('AUTO')}
                 disabled={!canControl}
                 className={`px-3 py-1 rounded-lg text-xs font-bold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
-                  telemetry.autoMode
+                  telemetry.autoMode === true
                     ? 'bg-[#227C4F] text-white shadow-2xs'
                     : 'text-neutral-500'
                 }`}
@@ -300,7 +370,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 onClick={() => handleModeChange('MANUAL')}
                 disabled={!canControl}
                 className={`px-3 py-1 rounded-lg text-xs font-bold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
-                  !telemetry.autoMode
+                  telemetry.autoMode === false
                     ? 'bg-[#227C4F] text-white shadow-2xs'
                     : 'text-neutral-500'
                 }`}
@@ -329,12 +399,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
           <div className="flex items-center justify-between py-2 border-b border-neutral-100">
             <span className="text-xs text-neutral-500">Sensors Wired</span>
-            <span className="text-xs font-bold text-neutral-900">HW-080, DHT11, BH1750</span>
+            <span className="text-xs font-bold text-neutral-900">Capacitive v2.0, DHT11, BH1750</span>
           </div>
 
           <div className="flex items-center justify-between py-2 border-b border-neutral-100">
             <span className="text-xs text-neutral-500">Sensor Pins</span>
-            <span className="text-xs font-bold text-neutral-900">32 AOUT • 3.3V/GND • 4 DATA • 21/22 I²C</span>
+            <span className="text-xs font-bold text-neutral-900">32 ADC • 3.3V/GND • 4 DATA • 21/22 I²C</span>
           </div>
 
           <div className="flex items-center justify-between py-2 border-b border-neutral-100">

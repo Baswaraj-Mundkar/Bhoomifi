@@ -3,7 +3,8 @@ import type { Timestamp } from 'firebase/firestore';
 export type NavigationTab = 'home' | 'field' | 'irrigation' | 'history' | 'settings';
 export type HomeSubTab = 'overview' | 'monitoring';
 export type OperationMode = 'AUTO' | 'MANUAL';
-export type DeviceStatus = 'ONLINE' | 'OFFLINE';
+export type DeviceStatus = 'ONLINE' | 'OFFLINE' | 'STALE';
+export type FirebaseReportedDeviceStatus = 'ONLINE' | 'OFFLINE';
 export type PumpStatus = 'ON' | 'OFF';
 
 export interface BhoomiFiTelemetry {
@@ -13,7 +14,7 @@ export interface BhoomiFiTelemetry {
   humidity: number | null;
   light: number | null;
   pumpStatus: PumpStatus | null;
-  autoMode: boolean;
+  autoMode: boolean | null;
   deviceStatus: DeviceStatus;
   timestamp: string | null;
   lastSeen: string | null;
@@ -74,7 +75,7 @@ export interface FirebaseSensorReading {
   light: number;
   pumpStatus?: PumpStatus;
   autoMode?: boolean;
-  deviceStatus?: DeviceStatus;
+  deviceStatus?: FirebaseReportedDeviceStatus;
   timestamp: FirebaseTimestamp;
 }
 
@@ -86,8 +87,8 @@ export interface FirebaseFarm {
 
 export interface FirebaseDevice {
   deviceName: string;
-  deviceStatus: DeviceStatus;
-  lastSeen: FirebaseTimestamp;
+  deviceStatus: FirebaseReportedDeviceStatus;
+  lastSeen: FirebaseTimestamp | null;
   firmwareVersion: string;
   wifiStatus: string;
   farmId: string;

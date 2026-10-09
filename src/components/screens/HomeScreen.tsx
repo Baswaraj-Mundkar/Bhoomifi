@@ -70,9 +70,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   const isPumpOn = telemetry.pumpStatus === 'ON';
   const today = getTimestampDisplay(telemetry.timestamp);
-  const operationMode = telemetry.autoMode ? 'AUTO' : 'MANUAL';
+  const operationMode = telemetry.autoMode === null
+    ? 'Unavailable'
+    : telemetry.autoMode ? 'AUTO' : 'MANUAL';
   const pumpReason = telemetry.pumpStatus === null
     ? 'Waiting for live device data.'
+    : telemetry.autoMode === null
+    ? 'Irrigation mode has not been reported by the device.'
     : telemetry.autoMode
     ? isPumpOn
       ? `Below ${telemetry.minMoistureThreshold}% minimum; running to ${telemetry.targetMoistureThreshold}%.`
@@ -198,10 +202,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 {/* Automation Mode Card */}
                 <div
                   onClick={() => {
-                    if (canControl) onToggleMode();
+                    if (canControl && telemetry.autoMode !== null) onToggleMode();
                   }}
-                  aria-disabled={!canControl}
-                  className={`flex items-center justify-between p-2.5 rounded-2xl bg-[#F6F7F6] border border-neutral-200/50 hover:border-neutral-300 transition-colors ${canControl ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                  aria-disabled={!canControl || telemetry.autoMode === null}
+                  className={`flex items-center justify-between p-2.5 rounded-2xl bg-[#F6F7F6] border border-neutral-200/50 hover:border-neutral-300 transition-colors ${canControl && telemetry.autoMode !== null ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                   title="Click to toggle between AUTO and MANUAL mode"
                 >
                   <div className="flex items-center gap-2 overflow-hidden">
@@ -248,7 +252,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     {moistureStatus.label}
                   </span>
                   <p className="text-[10px] text-neutral-400 mt-1">
-                    HW-080 • ADC {telemetry.soilRawADC ?? '—'} • GPIO32
+                    Capacitive v2.0 • ADC {telemetry.soilRawADC ?? '—'} • GPIO32
                   </p>
                 </div>
               </div>
@@ -343,7 +347,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </div>
           </div>
 
-          {/* HW-080 Probe & Relay Status Card */}
+          {/* Capacitive soil probe & relay status card */}
           <div className="bg-white rounded-[24px] p-4 border border-black/[0.04] shadow-sm flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-2xl bg-[#E7F3EC] text-[#227C4F] flex items-center justify-center">
@@ -374,7 +378,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               </div>
               <button
                 onClick={onToggleMode}
-                disabled={!canControl}
+                disabled={!canControl || telemetry.autoMode === null}
                 className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-white border border-neutral-200/80 text-xs font-semibold text-neutral-800 shadow-2xs hover:bg-neutral-50"
               >
                 <span>Mode: {operationMode}</span>
@@ -384,7 +388,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
             <button
               onClick={onTogglePump}
-              disabled={!canControl || telemetry.autoMode || telemetry.pumpStatus === null}
+              disabled={!canControl || telemetry.autoMode !== false || telemetry.pumpStatus === null}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-2xl text-white text-xs font-bold shadow-sm transition-all duration-200 shrink-0 ${
                 isPumpOn ? 'bg-amber-600 hover:bg-amber-700' : 'bg-[#227C4F] hover:bg-[#1A633F]'
               }`}
@@ -507,7 +511,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 </div>
 
                 <p className="text-xs text-neutral-400">
-                  HW-080 • GPIO32 • ADC {telemetry.soilRawADC ?? '—'} • {telemetry.soilMoisture === null ? 'No reading' : `${telemetry.soilMoisture}%`}
+                  Capacitive v2.0 • GPIO32 • ADC {telemetry.soilRawADC ?? '—'} • {telemetry.soilMoisture === null ? 'No reading' : `${telemetry.soilMoisture}%`}
                 </p>
               </div>
 

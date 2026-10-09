@@ -40,7 +40,7 @@ export function telemetryFromFirebaseReading(
     ...reading,
     soilMoisture: moisturePercentFromAdc(reading.soilRawADC),
     pumpStatus: reading.pumpStatus ?? null,
-    autoMode: reading.autoMode ?? true,
+    autoMode: reading.autoMode ?? null,
     deviceStatus: reading.deviceStatus ?? 'OFFLINE',
     timestamp,
     lastSeen: timestamp,

@@ -28,7 +28,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
     {
       id: 'notif-1',
       title: `Demo soil moisture: ${telemetry.soilMoisture ?? '—'}%`,
-      description: 'This is a sample value from Demo Mode, not a live HW-080 sensor reading.',
+      description: 'This is a sample value from Demo Mode, not a live capacitive sensor reading.',
       type: 'success',
       timestamp: lastUpdated,
       actionTab: 'irrigation' as NavigationTab,
@@ -55,7 +55,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
   ] : [
     {
       id: 'notif-live',
-      title: telemetry.deviceStatus === 'ONLINE' ? 'ESP32 is LIVE' : 'ESP32 is OFFLINE',
+      title: telemetry.deviceStatus === 'ONLINE' ? 'ESP32 is LIVE' : `ESP32 is ${telemetry.deviceStatus}`,
       description: telemetry.deviceStatus === 'ONLINE'
         ? `Latest Firebase sensor update: ${lastUpdated}.`
         : `Last known readings are retained${telemetry.lastSeen ? `; last seen ${new Date(telemetry.lastSeen).toLocaleString()}` : ''}.`,
@@ -73,7 +73,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
           <div className="flex items-center gap-2">
             <h3 className="text-lg font-bold text-neutral-900 tracking-tight">Node Notifications</h3>
             <span className="bg-[#E7F3EC] text-[#227C4F] text-[11px] font-bold px-2 py-0.5 rounded-full">
-              {isDemoMode ? 'Demo' : telemetry.deviceStatus === 'ONLINE' ? 'LIVE' : 'OFFLINE'}
+              {isDemoMode ? 'Demo' : telemetry.deviceStatus === 'ONLINE' ? 'LIVE' : telemetry.deviceStatus}
             </span>
           </div>
           <button

@@ -51,7 +51,7 @@ export const unavailableLiveTelemetry: BhoomiFiTelemetry = {
   light: null,
   deviceStatus: 'OFFLINE',
   pumpStatus: null,
-  autoMode: true,
+  autoMode: null,
   minMoistureThreshold: 35,
   targetMoistureThreshold: 45,
   timestamp: null,
@@ -69,9 +69,9 @@ export const hardwareModules: HardwareModule[] = [
   },
   {
     id: 'soil-sensor',
-    name: 'HW-080 Soil Moisture Hygrometer',
+    name: 'Capacitive Soil Moisture Sensor v2.0',
     component: 'Analog soil moisture sensor',
-    pin: 'GPIO32 (AOUT) • 3.3V (VCC) • GND',
+    pin: 'GPIO32 (ADC) • 3.3V (VCC) • GND',
     status: 'Operational',
     reading: 'Demo: 62% • ADC 1990'
   },
@@ -172,7 +172,7 @@ export const initialSensorHistory: SensorHistoryPoint[] = [
 export const initialDeviceSettings: DeviceSettings = {
   farmId: process.env.NEXT_PUBLIC_FIREBASE_FARM_ID ?? 'bhoomifi-farm-01',
   deviceId: process.env.NEXT_PUBLIC_FIREBASE_DEVICE_ID ?? 'BHOOMIFI-ESP32-NODE-01',
-  deviceName: 'BhoomiFi Smart Pot / Bed Node',
+  deviceName: 'BhoomiFi ESP32 Node 01',
   firmwareVersion: 'Not connected',
   wifiSSID: 'Not connected',
   ipAddress: 'Not connected',

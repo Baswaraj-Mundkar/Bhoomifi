@@ -15,6 +15,7 @@ import { IrrigationScreen } from '@/components/screens/IrrigationScreen';
 import { HistoryScreen } from '@/components/screens/HistoryScreen';
 import { SettingsScreen } from '@/components/screens/SettingsScreen';
 import { Sprout, Power, Search, Bell } from 'lucide-react';
+import type { FirebaseConnectionStatus, FirebaseSetupStatus } from '@/data/firebaseService';
 
 interface DesktopViewProps {
   currentTab: NavigationTab;
@@ -42,6 +43,9 @@ interface DesktopViewProps {
   authLoading: boolean;
   authActionLoading: boolean;
   authError: string | null;
+  firebaseConnectionStatus: FirebaseConnectionStatus;
+  firebaseSetupStatus: FirebaseSetupStatus;
+  pendingCommand: string | null;
   onSignIn: (email: string, password: string) => Promise<void>;
   onSignOut: () => Promise<void>;
 }
@@ -72,6 +76,9 @@ export const DesktopView: React.FC<DesktopViewProps> = ({
   authLoading,
   authActionLoading,
   authError,
+  firebaseConnectionStatus,
+  firebaseSetupStatus,
+  pendingCommand,
   onSignIn,
   onSignOut
 }) => {
@@ -93,7 +100,7 @@ export const DesktopView: React.FC<DesktopViewProps> = ({
                   Bhoomi<span className="text-[#227C4F]">Fi</span>
                 </span>
                 <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full bg-[#E7F3EC] text-[#227C4F]">
-                  {settings.demoMode ? 'Demo Mode' : telemetry.deviceStatus === 'ONLINE' ? 'LIVE' : 'OFFLINE'}
+                  {settings.demoMode ? 'Demo Mode' : telemetry.deviceStatus === 'ONLINE' ? 'LIVE' : telemetry.deviceStatus}
                 </span>
               </div>
               <p className="text-[11px] text-neutral-400">ESP32 IoT Irrigation Intelligence</p>
@@ -149,7 +156,7 @@ export const DesktopView: React.FC<DesktopViewProps> = ({
 
             <button
               onClick={onTogglePump}
-              disabled={!canControl || telemetry.autoMode || telemetry.pumpStatus === null}
+              disabled={!canControl || telemetry.autoMode !== false || telemetry.pumpStatus === null}
               className={`flex items-center gap-1.5 px-4 py-2.5 rounded-2xl text-white text-xs font-bold shadow-sm transition-all ${
                 isPumpOn ? 'bg-amber-600 hover:bg-amber-700' : 'bg-[#227C4F] hover:bg-[#1A633F]'
               }`}
@@ -166,6 +173,11 @@ export const DesktopView: React.FC<DesktopViewProps> = ({
         {commandError && (
           <p role="alert" className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-xs text-red-800">
             {commandError}
+          </p>
+        )}
+        {pendingCommand && (
+          <p role="status" className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+            {pendingCommand}
           </p>
         )}
         {currentTab === 'home' && (
@@ -188,7 +200,7 @@ export const DesktopView: React.FC<DesktopViewProps> = ({
                   ESP32 {telemetry.deviceStatus}
                 </span>
                 <span className="text-xs font-semibold text-neutral-700 bg-white border border-neutral-200 px-3 py-1 rounded-full">
-                  Mode: {telemetry.autoMode ? 'AUTO' : 'MANUAL'}
+                  Mode: {telemetry.autoMode === null ? 'Unavailable' : telemetry.autoMode ? 'AUTO' : 'MANUAL'}
                 </span>
               </div>
             </div>
@@ -276,6 +288,8 @@ export const DesktopView: React.FC<DesktopViewProps> = ({
               authLoading={authLoading}
               authActionLoading={authActionLoading}
               authError={authError}
+              firebaseConnectionStatus={firebaseConnectionStatus}
+              firebaseSetupStatus={firebaseSetupStatus}
               onSignIn={onSignIn}
               onSignOut={onSignOut}
             />

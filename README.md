@@ -1,65 +1,103 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BhoomiFi
 
-## Getting Started
+BhoomiFi is a Next.js dashboard for an ESP32-WROOM-32 smart irrigation device. It supports clearly labeled local Demo Mode and authenticated real-time Firebase/Firestore mode. Live mode begins OFFLINE/Unavailable and never substitutes sample values for missing Firebase telemetry.
 
-First, run the development server:
+## Run locally
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000. Use **Demo Mode** in Settings to run the simulator without Firebase Authentication. Simulated readings and controls are explicitly identified as demo-only.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Firebase client configuration
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The app uses Firebase Web SDK client configuration only. Copy `.env.example` to `.env.local`, supply the Firebase Web API key from Firebase Console → Project settings → General → Your apps, and confirm the remaining values identify the `bhoomifi` project:
 
-## BhoomiFi Firebase and sensor data
+```dotenv
+NEXT_PUBLIC_FIREBASE_API_KEY=
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=bhoomifi.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=bhoomifi
+NEXT_PUBLIC_FIREBASE_APP_ID=
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=bhoomifi.firebasestorage.app
+NEXT_PUBLIC_FIREBASE_FARM_ID=bhoomifi-farm-01
+NEXT_PUBLIC_FIREBASE_DEVICE_ID=BHOOMIFI-ESP32-NODE-01
+```
 
-The app starts in **Live** mode and subscribes to Firestore for the configured device. It shows `LIVE` only while the device heartbeat is fresh; after 90 seconds without a heartbeat it shows `OFFLINE`, keeps the last sensor values, and displays `lastSeen`. The timeout is in `src/data/firebaseService.ts` (`DEVICE_OFFLINE_AFTER_MS`). Select **Demo Mode** in Settings to deliberately use clearly labeled sample readings; simulated data is never presented as live.
+Restart Next.js after changing environment variables. `.env.local` is ignored by Git. `NEXT_PUBLIC_*` values are public browser configuration, not secrets. Never put Firebase Admin credentials or a service-account private key in the frontend, repository, or ESP32 firmware.
 
-### Firebase setup
+## Authentication and ownership setup
 
-1. The Firebase web app configuration in `.env.example` targets project `bhoomifi`. Add its Web API key to `NEXT_PUBLIC_FIREBASE_API_KEY` in your local environment; obtain it from Firebase Console → Project settings → General → Your apps. In Firebase Console, open **Authentication → Sign-in method**, enable **Email/Password**, and save. Then open **Authentication → Users → Add user**, enter the first user's email and a strong password, and create the account. Sign in to the app from Settings; public registration and anonymous authentication are not enabled.
-2. Copy `.env.example` to `.env.local` and set the Web API key, farm ID, and device ID. These `NEXT_PUBLIC_*` values are public client configuration, not Admin credentials. Never put a service-account key or Firebase Admin credential in this app.
-3. Deploy `firestore.rules` and `firestore.indexes.json` to the Firebase project (Firebase CLI: `firebase deploy --only firestore:rules,firestore:indexes`).
-4. Provision `farms/{farmId}` and `devices/{deviceId}` from the trusted Firebase Console/Admin environment. Set the farm's `ownerUid` to the Firebase UID shown in Settings, its `deviceIds` to include the device ID, and the device fields `farmId`, `ownerUid`, and `deviceUid`. `deviceUid` must be the UID of the ESP32's dedicated Firebase Auth account. Do not allow client creation of these ownership records.
-5. Restart the Next.js app after changing environment variables.
+1. In Firebase Console, enable **Authentication → Sign-in method → Email/Password** and create the owner account. The web app only signs in/out; it does not provide public registration.
+2. Copy the owner's Firebase Auth UID. Provision the farm document with that UID as `ownerUid`.
+3. Create a separate Email/Password Auth account dedicated to the ESP32 and copy its Firebase-generated UID. Use it as the device document's `deviceUid`; never reuse the farm owner's UID.
+4. Use Firebase Console as the trusted administrator (or another trusted Admin SDK environment) to provision the farm and device records. The app's Firestore rules deny client creation of either record.
+5. Deploy the reviewed `firestore.rules` and `firestore.indexes.json` to the `bhoomifi` project. Do not broaden authenticated-user access.
 
-Firestore paths:
+### Firestore paths and records
 
-- `farms/{farmId}`: `name`, `ownerUid`, `deviceIds`.
-- `devices/{deviceId}`: `deviceName`, `deviceStatus`, `lastSeen`, `firmwareVersion`, `wifiStatus`, and ownership links (`farmId`, `ownerUid`, `deviceUid`).
-- Sensor data (`sensorData` in the app path map): `devices/{deviceId}/readings/{readingId}` with `soilMoisture`, `soilRawADC`, `temperature`, `humidity`, `light`, `timestamp`; `pumpStatus` is optional for accurately charting pump state alongside each sample.
-- `devices/{deviceId}/state/current`: current sensor readings, `pumpStatus`, `autoMode`, `deviceStatus`, `lastSeen`, and `timestamp`.
-- Device commands (`deviceCommands` in the app path map): `devices/{deviceId}/commands/current`; the app writes `pumpCommand` (`START`/`STOP`), `autoMode`, `minimumMoisture`, `targetMoisture`, and `updatedAt`. The ESP32 should consume and acknowledge/clear one-shot pump commands.
-- `irrigation_history/{eventId}`: `deviceId`, `action`, `reason`, `soilMoisture`, `timestamp`, and `source` (`AUTO`/`MANUAL`).
+The schema/path helpers are in `src/data/firebaseSchema.ts`; access control is in `firestore.rules`.
 
-The browser uses Firebase Email/Password Auth and Firestore client SDK listeners (`onSnapshot`) for current state, the latest 100 timestamped readings, commands, and irrigation history. Sign in and sign out are available in Settings. Firestore listeners start only after Firebase Auth confirms a signed-in user. Start/Stop and AUTO/threshold changes write to `commands/current`; the browser never addresses GPIO directly. Firestore access is unavailable until a signed-in Firebase UID owns the provisioned farm/device. If Firebase is not configured or a listener/write fails, the app shows an explicit connection/error state and Demo Mode remains usable.
+| Purpose | Path | Fields |
+| --- | --- | --- |
+| Farm | `farms/{farmId}` | `name` (string), `ownerUid` (Firebase Auth UID), `deviceIds` (string array) |
+| Device | `devices/{deviceId}` | `deviceName`, `deviceStatus` (`ONLINE`/`OFFLINE`), `lastSeen` (Firestore Timestamp or null before first heartbeat), `firmwareVersion`, `wifiStatus`, `farmId`, `ownerUid`, `deviceUid` |
+| Readings | `devices/{deviceId}/readings/{readingId}` | `soilMoisture`, `soilRawADC`, `temperature`, `humidity`, `light`, `timestamp`; optional `pumpStatus` |
+| Current state | `devices/{deviceId}/state/current` | `soilMoisture`, `soilRawADC`, `temperature`, `humidity`, `light`, `pumpStatus`, `autoMode`, `deviceStatus`, `lastSeen`, `timestamp` |
+| Commands | `devices/{deviceId}/commands/current` | `pumpCommand`, `autoMode`, `minimumMoisture`, `targetMoisture`, `updatedAt` (command fields are optional) |
+| Irrigation history | `irrigation_history/{eventId}` | `deviceId`, `action`, `reason`, `soilMoisture`, `timestamp`, `source` (`AUTO`/`MANUAL`) |
 
-The Firestore rules deny client creation of farms/devices. Farm owners can read their own device data and write commands; only the provisioned device UID can write sensor state, readings, and irrigation events. Firebase rules cannot keep a device credential secret if it is embedded in public firmware: use a dedicated device account and protect its credential on the ESP32. For production fleets, use a trusted backend/token provisioning flow instead.
+Initial IDs are `bhoomifi-farm-01` and `BHOOMIFI-ESP32-NODE-01`. Farm and device ownership links must be consistent: farm `ownerUid` is the web owner; device `farmId` points at that farm; device `ownerUid` matches the owner for consistency; device `deviceUid` is the distinct device account UID; and farm `deviceIds` includes the device ID. Rules authorize farm ownership by looking up `farms/{farmId}.ownerUid` through the device's `farmId`; device identity is checked against `devices/{deviceId}.deviceUid`. The rules do not use the device's `ownerUid` or farm's `deviceIds` field to grant access.
 
-### Hardware and irrigation behavior
+The app starts Firestore listeners only after Firebase Auth confirms a signed-in user. It checks farm/device setup, listens to the current state and the latest 100 timestamped readings and irrigation events, and uses snapshot metadata to report network/cache status. Permission errors are surfaced as setup/access errors; missing records are never fabricated. Sensor values are range-validated before display. Soil moisture is computed from valid raw ADC using `((4095 - rawADC) / (4095 - 700)) * 100`, clamped to 0–100%; a malformed or missing sensor value displays as unavailable. A missing or invalid reported operating mode displays as unavailable; mode toggles and manual pump controls remain disabled until the device reports its mode. Heartbeats up to 90 seconds old display as LIVE/ONLINE, older valid heartbeats as STALE, and no heartbeat or an explicitly offline device as OFFLINE.
 
-HW-080 AOUT → GPIO32 (VCC 3.3V, GND), DHT11 DATA → GPIO4, BH1750 SDA/SCL → GPIO21/GPIO22, relay IN → GPIO25, and demonstration LED → GPIO26. Soil moisture uses the measured calibration `((4095 - rawADC) / (4095 - 700)) * 100`, clamped to 0–100%. AUTO uses 35% minimum and 45% target thresholds. The ESP32 firmware must enforce these thresholds locally so irrigation continues safely without Internet/Firebase; app commands configure/monitor the device and do not replace local control.
+## ESP32 hardware and telemetry format
 
-## Learn More
+Expected wiring:
 
-To learn more about Next.js, take a look at the following resources:
+- ESP32-WROOM-32
+- Capacitive Soil Moisture Sensor v2.0 analog output → GPIO32 / ADC
+- DHT11 data → GPIO4
+- BH1750 SDA → GPIO21; SCL → GPIO22
+- Relay → GPIO25
+- LED demonstration output → GPIO26
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The device account should write a reading document at `devices/BHOOMIFI-ESP32-NODE-01/readings/{readingId}`. All fields required by the current rules are required:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```json
+{
+  "soilMoisture": 42.5,
+  "soilRawADC": 2651,
+  "temperature": 28,
+  "humidity": 61,
+  "light": 320,
+  "pumpStatus": "OFF",
+  "timestamp": "<Firestore Timestamp>"
+}
+```
 
-## Deploy on Vercel
+`soilMoisture` is the calibrated 0–100% value; when valid, the client recalculates it from `soilRawADC`. `pumpStatus` is optional on individual readings but recommended. `timestamp` must be a valid Firestore Timestamp (or another timestamp representation understood by the client). For `state/current`, write all required state fields listed above, including `autoMode`, `deviceStatus`, `lastSeen`, and `timestamp`. Keep the device document's `deviceStatus` and `lastSeen` current; its heartbeat determines freshness. Update the device document only for the permitted heartbeat/status fields.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Irrigation commands and control
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The app writes commands to `devices/BHOOMIFI-ESP32-NODE-01/commands/current`, with `updatedAt` set by Firestore server time. Examples:
+
+```json
+{ "autoMode": true, "minimumMoisture": 35, "targetMoisture": 45 }
+```
+
+```json
+{ "pumpCommand": "START" }
+```
+
+Valid one-shot `pumpCommand` values are `START` and `STOP`. The device should consume a pump command, safely apply it according to its local controls, and clear `pumpCommand` to `null` as the rules permit. The app reports commands as pending/unconfirmed until a later telemetry state confirms pump/mode changes. The current schema has no threshold-application acknowledgment field, so threshold changes remain explicitly unconfirmed by device state.
+
+AUTO control must be enforced locally by firmware: turn the pump on below 35% moisture and turn it off at 45%; preserve the hysteresis/hold band between those thresholds. MANUAL mode permits an operator pump command. The relay is GPIO25 and the LED demonstration output is GPIO26. A web command is not proof that hardware operated; the UI waits for device-reported state.
+
+## Firestore security and deployment notes
+
+The existing rules restrict owner access to the farm UID link and device writes to the dedicated device UID. The app cannot create farms/devices. Only deploy security rules after reviewing them in Firebase Console or the Firebase CLI. Client-side Firebase Web configuration is public; device credentials embedded in firmware can be extracted. For a classroom prototype use a dedicated device account and protect its credentials as far as the hardware allows; for production use a trusted provisioning/backend flow rather than distributing reusable device passwords.
+
+No real ESP32 connection is asserted until an authenticated device sends valid, fresh Firestore telemetry.
