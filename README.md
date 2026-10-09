@@ -33,8 +33,38 @@ Restart Next.js after changing environment variables. `.env.local` is ignored by
 1. In Firebase Console, enable **Authentication → Sign-in method → Email/Password** and create the owner account. The web app only signs in/out; it does not provide public registration.
 2. Copy the owner's Firebase Auth UID. Provision the farm document with that UID as `ownerUid`.
 3. Create a separate Email/Password Auth account dedicated to the ESP32 and copy its Firebase-generated UID. Use it as the device document's `deviceUid`; never reuse the farm owner's UID.
-4. Use Firebase Console as the trusted administrator (or another trusted Admin SDK environment) to provision the farm and device records. The app's Firestore rules deny client creation of either record.
-5. Deploy the reviewed `firestore.rules` and `firestore.indexes.json` to the `bhoomifi` project. Do not broaden authenticated-user access.
+4. Use the local Admin SDK provisioning script below (or Firebase Console) to provision the farm and device records. The app's Firestore rules deny client creation of either record.
+5. Deploy the reviewed `firestore.rules` and `firestore.indexes.json` to the `bhoomifi` project only when explicitly ready. Do not broaden authenticated-user access.
+
+### Provision farm and device documents locally
+
+Install dependencies, then authenticate Application Default Credentials as a trusted Firebase administrator with permission to read and write the two Firestore documents. On a trusted development machine, run `gcloud auth application-default login` (install the Google Cloud CLI first if needed). Never download or store a service-account key in this repository.
+
+The script targets only `farms/bhoomifi-farm-01` and `devices/BHOOMIFI-ESP32-NODE-01`. Supply the owner Auth UID, the distinct device Auth UID, and the desired farm name from the shell; do not put account passwords or credentials in command history or chat. The default invocation reads and validates existing records and prints a plan without writing:
+
+```bash
+node scripts/provision-firebase.mjs --owner-uid OWNER_UID --device-uid DEVICE_UID --farm-name "Farm name"
+```
+
+Review the plan first. To explicitly apply it, repeat the command with both `--apply --confirm bhoomifi`. The script refuses conflicting ownership links, preserves existing farm device IDs, and creates only missing farm/device documents. It does not create Auth users, commands, readings, state, or irrigation history, and does not deploy rules. Use a non-production project or Firebase Emulator for rehearsal; even a dry run contacts Firestore to inspect the current documents.
+
+### Deployment checklist
+
+1. In the web host's build/runtime environment, set the same `NEXT_PUBLIC_FIREBASE_*` values as `.env.local`. The API key is Firebase Web configuration; do not use a service-account key or Firebase Admin credentials here.
+2. Add the production web host domain under Firebase Authentication → Settings → Authorized domains.
+3. Enable Email/Password Authentication and provision separate owner and ESP32 device accounts. Record both account UIDs.
+4. Provision the farm and device documents with the ownership links described above.
+5. Install and authenticate the Firebase CLI, review the rules and indexes, then deploy them to the intended project:
+
+   ```bash
+   firebase login
+   firebase deploy --only firestore:rules,firestore:indexes --project bhoomifi
+   ```
+
+6. Build and deploy the Next.js app (`npm run build`, then use the host's supported Next.js deployment process).
+7. Flash and verify firmware that writes the documented reading/state fields and consumes commands. Sign in to the deployed app and confirm the device becomes LIVE only after valid, fresh telemetry arrives. Verify pump commands against device-reported state; a successful Firestore write alone does not verify relay or pump operation.
+
+The Arduino IDE firmware and its LED-only test procedure are in [`firmware/BhoomiFi/README.md`](./firmware/BhoomiFi/README.md). This initial firmware reports the GPIO26 test LED state as `pumpStatus`; it does not drive GPIO25 or operate a pump. Treat it as a telemetry/control-path test only, not field-ready irrigation firmware.
 
 ### Firestore paths and records
 
@@ -63,6 +93,8 @@ Expected wiring:
 - BH1750 SDA → GPIO21; SCL → GPIO22
 - Relay → GPIO25
 - LED demonstration output → GPIO26
+
+The current firmware in `firmware/BhoomiFi/` is intentionally limited to the GPIO26 LED test and does not configure or drive the relay on GPIO25. Keep the pump and relay disconnected while using it; see the firmware README before uploading.
 
 The device account should write a reading document at `devices/BHOOMIFI-ESP32-NODE-01/readings/{readingId}`. All fields required by the current rules are required:
 
